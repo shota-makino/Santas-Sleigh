@@ -1,0 +1,105 @@
+model "SantasSledges_Master"
+
+(!
+  Master file for the 
+  
+  Kaggle Santa Rideshare Optimization Challenge
+  Capicitated Vehicle Routing Problem (a twist of traveling salesman problem)
+  Given a list of gifts, weights, and their locations, deliver them in sleighs with a weight limit
+  All sleighs start from north pole, then head to each gift in the order that a user gives, and then head back to north pole
+  Sleighs have a base weight
+  "Weighted distance" = distance traveled * weights carried for that segment
+  Goal: minimize the total weighted distance traveled
+
+  This model uses R to separate the problem to small instances, where the exact MIP formulation
+    small enough to be solved quickly, then assembles the results to a single submission. 
+!)
+
+uses "mmxprs", "mmsheet", "mmjobs"
+uses "r"
+
+parameters
+  NUMPAR = 8	
+  NUMCLUSTERS = 77
+  SUBTIME = 60
+end-parameters
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!		
+! Data set up
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+declarations 
+  ! Input datafile contents
+  GiftIDs  : set of integer
+  Latitude : array(GiftIDs) of real
+  Longitude: array(GiftIDs) of real
+  Weight   : array(GiftIDs) of real 
+  
+  ! Raw cluster data from R
+  clustering:array(set of integer) of integer
+  
+  ! Gathered up clasters
+  Clusters:set of integer
+  ClusterMembers:array(Clusters) of set of integer
+end-declarations
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Collect the results to a single submission file
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+! Data structures to hold collected up data from the solution files
+declarations 
+  Allsledges: set of string  
+  AllGifts:array(Allsledges) of list of integer
+  
+  ! As the subproblmems will not be solved to optimality, some positions may be visited multiple times
+  ! keep track and skip multiplicity
+  giftseen : array(set of integer) of integer
+end-declarations
+
+! Collect data from a single file
+procedure add_sol_file(file : string) 
+ writeln("Adding ", file)
+  declarations 
+    ids : set of integer
+    file_gifts:  array(ids) of integer
+    file_trips:  array(ids) of integer
+  end-declarations 
+ initializations from "mmsheet.csv:"+file
+  [file_gifts,file_trips] as "skiph;[A:C]"
+ end-initializations 
+ forall (i in ids) do
+    if (giftseen(file_gifts(i)) <> 1) then
+      giftseen(file_gifts(i)) := 1
+      AllGifts(file+"::"+file_trips(i)) += [file_gifts(i)]
+    end-if
+ end-do
+end-procedure
+
+! Merge data in the individual files to a single one
+forall(i in 1..NUMCLUSTERS)  do
+  add_sol_file("subm"+i+".csv")
+end-do
+
+! create submission file
+fopen("simple_clusters_100k.csv", F_OUTPUT)
+writeln("GiftId,TripId")
+TripId := 0
+forall (s in Allsledges) do 
+  TripId := TripId + 1
+  forall (g in AllGifts(s)) do
+    writeln(g,",",TripId)
+  end-do
+end-do
+fclose(F_OUTPUT)
+
+writeln("Done.")
+
+end-model
+
+
+
+
+

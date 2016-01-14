@@ -1,0 +1,245 @@
+model "SantasSledges Clustering At Scale"
+
+uses "r", "mmsystem", "mmsheet"
+
+parameters
+  NUMCLUSTERS=3
+  CLUSTER=1
+
+  SLEDGECAPACITY=1000
+  SLEDGEWEIGHT=10
+
+end-parameters
+
+declarations
+  Index     : set of integer
+  GiftIDs   : array(Index) of integer
+  Latitude  : array(Index) of real
+  Longitude : array(Index) of real
+  Weight    : array(Index) of real
+  
+  clustering : dynamic array(set of integer) of integer
+  
+  ClusterMembers : dynamic array(set of integer) of set of integer
+ 
+  sortWeights   : dynamic array(set of integer) of real
+  sortInd       : list of integer
+  sortedGiftInd : list of integer
+  sortedInd     : list of integer
+  sortedWeights : dynamic array(set of integer) of real
+  sortedGiftIDs : dynamic array(set of integer) of integer
+end-declarations
+
+!!!!!! ENTERS DIFFERENT CWD
+setparam('workdir','./'+CLUSTER)
+
+initializations from "mmsheet.csv:cluster_" + CLUSTER + ".csv"
+  [GiftIDs, Latitude, Longitude, Weight] as "skiph;[A:E]"
+end-initializations
+
+
+writeln("Total gift count: ", getsize(GiftIDs))
+nc := NUMCLUSTERS
+total := 0.0
+overweight := true
+cnt := 0
+
+
+Rset('Latitude', Latitude)
+Rset('Longitude', Longitude)
+Reval('Latitude <- Latitude + 90')
+Reval('Longitude <- Longitude + 180')
+Reval("d<-cbind(Latitude,Longitude)")
+
+while (overweight) do
+  delcell(ClusterMembers)
+  delcell(clustering)
+  giftcount:= 0  
+  overweight := false
+  
+  Reval("k <- kmeans(d,"+nc+")")
+  Rgetarr('k$cluster',clustering)
+ 
+  cnt:= 1 
+  forall(g in Index) do
+    ClusterMembers(clustering(g)) += {g}
+  end-do
+
+  cnt:= 1
+  fopen("subcluster_"+CLUSTER+".csv", F_OUTPUT)
+  writeln("GiftID,Latitude,Longitude,Weight,TripID")
+
+  forall(c in 1..nc) do
+    total:=0
+    forall(g in ClusterMembers(c)) do
+      writeln(GiftIDs(g),",",Latitude(g),",",Longitude(g),",",Weight(g),",",c)
+      total += Weight(g)
+    end-do
+    
+    if total > (SLEDGECAPACITY-SLEDGEWEIGHT) then
+      overweight := true
+    end-if
+    
+    giftcount += getsize(ClusterMembers(c))
+    ! writeln("Total = ", total)
+  end-do
+
+  fclose(F_OUTPUT)
+  write("Total size for clusters is ", giftcount, ". ")
+
+  nc += 1 
+  writeln("Clustering at nc: ", nc-1, " finished.")
+end-do
+
+
+writeln("Sorting gifts by weight for each unique trip...")
+  
+fopen("subcluster_"+CLUSTER+"_costs.csv", F_OUTPUT)
+writeln("ID,GiftID,TripID,Weight")
+
+cnt := 1
+forall(c in 1..(nc-1)) do
+  forall(g in ClusterMembers(c)) do
+    sortWeights(g) := Weight(g)
+  end-do   
+  qsort(false,sortWeights,sortedGiftInd,ClusterMembers(c))
+  sortedInd := sortedGiftInd
+  forall(g in ClusterMembers(c)) do
+    sortedWeights(g) := Weight(getfirst(sortedGiftInd))
+    sortedGiftIDs(g) := GiftIDs(getfirst(sortedGiftInd))
+    cuthead(sortedGiftInd,1) 
+  end-do
+  
+  forall(g in ClusterMembers(c)) do
+    writeln(cnt,",",sortedGiftIDs(g),",",c,",",sortedWeights(g))
+    cnt+=1
+  end-do
+
+  sortedGiftInd := []
+  sortedInd := []
+  delcell(sortWeights)
+  delcell(sortedGiftIDs)
+  delcell(sortedWeights)
+  
+end-do
+
+fclose(F_OUTPUT)
+
+delcell(ClusterMembers)
+delcell(clustering)
+
+nc -= 2
+writeln
+writeln("Evaluating larger cluster at nc=",nc)
+Reval("k <- kmeans(d,"+nc+")")
+Rgetarr('k$cluster',clustering)
+
+forall(g in Index) do
+  ClusterMembers(clustering(g)) += {g}
+end-do
+
+fopen("subcluster_"+CLUSTER+".csv", F_APPEND)
+
+forall(c in 1..nc) do
+  total:=0
+  forall(g in ClusterMembers(c)) do
+    total += Weight(g)
+  end-do 
+
+  if total <= (SLEDGECAPACITY) then 
+    forall(g in ClusterMembers(c)) do
+    writeln(GiftIDs(g), ",", Latitude(g),",", Longitude(g), ",", Weight(g),",",nc+1+c)
+  end-if
+end-do
+
+fclose(F_APPEND)
+
+fopen("subcluster_"+CLUSTER+"_costs.csv", F_APPEND)
+
+forall(c in 1..nc) do
+  forall(g in ClusterMembers(c)) do
+    sortWeights(g) := Weight(g)
+  end-do   
+  qsort(false,sortWeights,sortedGiftInd,ClusterMembers(c))
+  sortedInd := sortedGiftInd
+  forall(g in ClusterMembers(c)) do
+    sortedWeights(g) := Weight(getfirst(sortedGiftInd))
+    sortedGiftIDs(g) := GiftIDs(getfirst(sortedGiftInd))
+    cuthead(sortedGiftInd,1) 
+  end-do
+
+  forall(g in ClusterMembers(c)) do
+    writeln(cnt,",",sortedGiftIDs(g),",",nc + 1 + c,",",sortedWeights(g))
+    cnt+=1
+  end-do  
+
+  sortedGiftInd := []
+  sortedInd := []
+  delcell(sortWeights)
+  delcell(sortedGiftIDs)
+  delcell(sortedWeights)
+  
+end-do
+
+fclose(F_APPEND)
+
+delcell(clustering)
+delcell(ClusterMembers)
+
+nc += 2
+writeln
+writeln("Evaluating smaller cluster at nc=",nc)
+Reval("k <- kmeans(d,"+nc+")")
+Rgetarr('k$cluster',clustering)
+
+forall(g in Index) do
+  ClusterMembers(clustering(g)) += {g}
+end-do
+
+fopen("subcluster_"+CLUSTER+".csv", F_APPEND)
+
+forall(c in 1..nc) do
+  total:=0
+  forall(g in ClusterMembers(c)) do
+    writeln(GiftIDs(g),",",Latitude(g),",",Longitude(g),",",Weight(g),",",2*nc - 3 + c)
+    total += Weight(g)
+  end-do  
+end-do
+
+fclose(F_APPEND)
+
+fopen("subcluster_"+CLUSTER+"_costs.csv", F_APPEND)
+
+forall(c in 1..nc) do
+  forall(g in ClusterMembers(c)) do
+    sortWeights(g) := Weight(g)
+  end-do   
+  qsort(false,sortWeights,sortedGiftInd,ClusterMembers(c))
+  sortedInd := sortedGiftInd
+  forall(g in ClusterMembers(c)) do
+    sortedWeights(g) := Weight(getfirst(sortedGiftInd))
+    sortedGiftIDs(g) := GiftIDs(getfirst(sortedGiftInd))
+    cuthead(sortedGiftInd,1) 
+  end-do
+
+  forall(g in ClusterMembers(c)) do
+    writeln(cnt,",",sortedGiftIDs(g),",",2*nc - 3 + c,",",sortedWeights(g))
+    cnt+=1
+  end-do
+  sortedGiftInd := []
+  sortedInd := []
+  delcell(sortWeights)
+  delcell(sortedGiftIDs)
+  delcell(sortedWeights)
+  
+end-do
+
+fclose(F_APPEND)
+
+!!!!!!! GOES BACK OUT OF CHANGED CWD
+setparam('workdir','../')
+writeln("Done clustering ", CLUSTER, ". Evaluated with ", nc-1, " clusters.")
+writeln
+writeln
+
+end-model

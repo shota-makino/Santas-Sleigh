@@ -1,0 +1,70 @@
+model "SantasSledges Clustering At Large"
+
+uses "mmsystem", "mmsheet"
+uses "r"
+
+parameters
+  NUMCLUSTERS=15
+  SLEDGECAPACITY=1000
+end-parameters
+
+function isunderweight( weight : array(giftids : set of integer) of real ) : boolean
+  total := sum(g in giftids) weight(g)
+  returned := total < SLEDGECAPACITY
+end-function
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! START OF MODEL DEFINITION
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+declarations
+  GiftIDs        : set of integer
+  Latitude       : array(GiftIDs) of real
+  Longitude      : array(GiftIDs) of real
+  Weight         : array(GiftIDs) of real
+  
+  clustering     : array(GiftIDs) of integer
+  
+  Clusters       : set of integer
+  ClusterMembers : array(Clusters) of set of integer
+end-declarations
+
+initializations from "mmsheet.csv:gifts.csv"
+  [Latitude, Longitude, Weight] as "[A2:D100001](#1,#2,#3,#4)"
+end-initializations
+
+Rset('Latitude',Latitude)
+Rset('Longitude',Longitude)
+Reval('Latitude <- Latitude + 90')
+Reval('Longitude <- Longitude + 180')
+
+Reval("d <- cbind(Latitude,Longitude)")
+Reval("k <- kmeans(d,"+NUMCLUSTERS+")")
+Rgetarr('k$cluster',clustering)
+
+forall(g in GiftIDs) do
+  ClusterMembers(clustering(g)) += {g}
+end-do
+
+cnt:=0
+forall(c in Clusters) do
+  makedir(string(c))
+  setparam("workdir","./"+c)
+  fopen("cluster_"+c+".csv",F_OUTPUT)
+  writeln("ROW,GiftID,Latitude,Longitude,Weight")
+  
+  forall(g in ClusterMembers(c)) do
+    cnt+=1
+    writeln(cnt,",",g,",",Latitude(g),",",Longitude(g),",",Weight(g))
+  end-do
+  fclose(F_OUTPUT)
+  setparam("workdir","../")
+  cnt:=0
+end-do
+
+writeln
+writeln("Clustering Done.")
+writeln
+
+
+end-model

@@ -1,0 +1,37 @@
+model "SantasSledges_Write"
+
+uses "mmsheet"
+uses "mmsystem"
+parameters
+  NUMCLUSTERS = 15
+end-parameters
+
+declarations
+  GiftIDs  : set of integer
+  Latitude : dynamic array(GiftIDs) of real
+  Longitude: dynamic array(GiftIDs) of real
+  Weight   : dynamic array(GiftIDs) of real
+  Total    : real
+  JOBS     = 1..NUMCLUSTERS
+end-declarations
+
+forall (j in JOBS) do
+  initializations from "mmsheet.csv:cluster_"+j+".dat"
+    [Latitude, Longitude, Weight] as "skiph;[A:D]"
+  end-initializations
+
+  Total := sum(g in GiftIDs) Weight(g)
+
+  writeln("Total weight for Gift Cluster ", j, " is ", Total)
+  !if Total > 990 then
+  !  write(". This total goes over 990!")
+  !end-if
+  !forall (g in GiftIDs) do
+  delcell(Latitude)
+  delcell(Longitude)
+  delcell(Weight)
+  !end-do
+end-do
+
+
+end-model

@@ -1,0 +1,36 @@
+model "example"
+uses "mmsystem" 
+declarations
+  IDs : set of integer
+  ar: array(IDs) of real
+  dar: dynamic array(set of integer) of real
+  indar: dynamic array(set of integer) of integer
+end-declarations
+
+
+IDs:= {100, 102, 92, 8, 4, 1293, 303, 234}
+ar:: [1.2, 2.29, 123, 1, -120, -1.23, -43, 8]
+forall(g in IDs|g<200) do
+  dar(g) := ar(g)
+  indar(g) := 0
+end-do
+
+writeln("The index set is ", IDs)
+writeln("Array is : ", ar)
+
+writeln
+writeln
+qsort(true,ar)
+writeln("Sorted array is : ", ar)
+qsort(false,ar)
+writeln("Other way : ", ar)
+
+writeln
+writeln
+writeln("New array is : ", dar)
+
+qsort(false,dar,indar)
+writeln("New sorted array is : ", dar)
+writeln("New index sorted array is : ", indar)
+
+end-model

@@ -1,0 +1,157 @@
+model "SantasSledges Alternative Set Covering Problem"
+
+uses "mmxprs", "mmsheet", "mmsystem"
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!		
+! Data set up
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+parameters
+  ! Data file and time limit; there are overwritten by the master problem
+  FILE="subcluster_"
+
+  CLUSTER=1
+  TIME=20
+  THREADS=1
+	
+  ! Fixed parameters
+  SLEDGECAPACITY = 1000 
+  SLEDGEWEIGHT   = 10	
+  
+  ! Model parameters
+  MAXSLEDGES = 10
+  
+  ! Radius of earth 
+  r = 100
+  
+  ! Definition of Pi
+  Pi = 3.14159265359
+end-parameters
+
+declarations 
+  ! Input datafile contents
+  Index    : set of integer
+  TripIDs  : array(Index) of integer
+  GiftIDs  : array(Index) of integer
+  Weight   : array(Index) of real
+
+  ! Location of the North Pole
+  POLE_LATITUDE  = 90
+  POLE_LONGITUDE = 0
+
+  TripsAll  : set of integer  
+  Gifts     : set of integer  
+  TripsOver : set of integer
+  Trips     : set of integer
+
+  ! The 0-1 matrix comprising of which gifts go into which trip 
+  All : array(TripsAll, Gifts) of integer
+
+  use : array(Trips) of mpvar
+
+  GiftTrip  : array(TripsAll) of list of integer
+  WeightLim : array(TripsAll) of real
+end-declarations
+
+writeln("Solving for cluster file ", FILE+CLUSTER+"_costs.csv")
+
+setparam('workdir','./'+CLUSTER)
+
+! Read data from csv file
+initializations from "mmsheet.csv:subcluster_"+CLUSTER+"_costs.csv"
+  [GiftIDs,TripIDs,Weight] as "skiph;[A:D]"
+end-initializations
+
+forall(i in Index) do
+  GiftTrip(TripIDs(i)) += [GiftIDs(i)]
+end-do
+
+forall(i in Index) do
+  TripsAll += {TripIDs(i)}
+  Gifts    += {GiftIDs(i)}
+end-do
+
+forall(i in Index) WeightLim(TripIDs(i)) := 0
+forall(i in Index) do
+  WeightLim(TripIDs(i)) += Weight(i)
+end-do
+
+forall(t in TripsAll) do
+  if (WeightLim(t) > SLEDGECAPACITY) then
+    TripsOver += {t}
+    writeln("Removing trip ", t)
+  end-if
+end-do
+
+Trips := TripsAll - TripsOver
+
+writeln("  Item Count... ", getsize(GiftIDs))
+writeln("Initializing All Trips - Gifts 0-1 Matrix")
+forall(g in Index) do
+  All(TripIDs(g),GiftIDs(g)) := 1 
+end-do
+
+declarations
+  CostIDs  : set of integer
+  Costs    : array(CostIDs) of real
+ 
+  check    : set of integer
+end-declarations
+
+initializations from "mmsheet.csv:cost_"+CLUSTER+".csv"
+  Costs as "skiph;[A:B]"
+end-initializations
+
+forall(t in Trips) do
+  create( use(t) )
+  use(t) is_binary
+end-do
+
+forall(g in Gifts) do
+  sum(t in Trips) All(t,g) * use(t) >= 1
+end-do
+
+WRW := sum(t in Trips) use(t) * Costs(t)
+
+setparam('xprs_verbose',1)
+setparam('xprs_maxtime',1000)
+setparam('xprs_threads',3)
+
+minimize(WRW)
+
+setparam('workdir','../')
+
+writeln("Done Set Covering Problem")
+writeln("Writing Data...")
+
+ind:=1
+fopen("subm"+CLUSTER+".csv",F_OUTPUT)
+writeln("ID,GiftID,TripID")
+forall(t in Trips, g in GiftTrip(t) | use(t).sol > 0.5) do
+    writeln(ind,",",g,",",t)
+    ind+=1
+end-do
+fclose(F_OUTPUT)
+
+delcell(WeightLim)
+
+!!!!! CHECKING IF SOLUTION IS CORRECT !!!!!!
+cnt:=0
+forall(t in Trips, g in GiftTrip(t) | use(t).sol > 0.5) do
+  check += {g}
+end-do
+forall(t in Trips | use(t).sol > 0.5) do
+  cnt += 1
+end-do
+forall(t in Trips | use(t).sol > 0.5) do
+  if WeightLim(t) > SLEDGECAPACITY then
+    writeln("ERROR: Over weight limit trip found: ", t)
+  end-if
+end-do 
+
+writeln("Size of all unique gifts taken into account: ",getsize(check))
+writeln("Gift Count: ", getsize(Gifts))
+writeln("Trip Count: ", getsize(Trips))
+writeln("Trips used: ", cnt)
+
+end-model

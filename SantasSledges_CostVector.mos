@@ -1,0 +1,131 @@
+model "SantasSledges Clustering At Scale"
+
+uses "r", "mmsystem", "mmsheet"
+
+parameters
+  CLUSTER=1
+
+  SLEDGECAPACITY=1000
+  SLEDGEWEIGHT=10
+
+  r = 100
+  Pi = 3.14159265359
+end-parameters
+
+function arcsin(r:real): real
+  if abs(r)<1 then
+    returned:=2*arctan((r/(1+(1-r^2)^0.5)))
+  else
+    writeln("Math error")
+  end-if 
+end-function
+
+! A haversine function
+function haversine( latitude1 : real, longitude1 : real, 
+                    latitude2 : real, longitude2 : real ) : real
+  returned := 2*r*arcsin( sqrt( sin((Pi*latitude2/180-Pi*latitude1/180)/2)^2 + 
+    cos(Pi*latitude1/180)*cos(Pi*latitude2/180)*sin((Pi*longitude2/180-Pi*longitude1/180)/2)^2 ) )  
+end-function
+
+writeln("Making Cost Vector for Cluster: ", CLUSTER)
+writeln
+writeln
+
+declarations
+  POLE_LATITUDE = 90
+  POLE_LONGITUDE = 0
+
+  Locations : set of integer
+  Distances : array(Locations, Locations) of real
+
+  GiftIDs   : set of integer
+  Latitude  : array(GiftIDs) of real
+  Longitude : array(GiftIDs) of real
+  Weight    : array(GiftIDs) of real
+  
+end-declarations
+
+!!!!!! ENTERS DIFFERENT CWD
+setparam('workdir','./'+CLUSTER)
+
+initializations from "mmsheet.csv:cluster_" + CLUSTER + ".csv"
+  [Latitude, Longitude, Weight] as "skiph;[B:E]"
+end-initializations
+
+Locations := {0} + GiftIDs;
+forall(c in Locations, d in Locations) do
+  ! If between two gift locations
+  if (c <> 0 and d <> 0) then
+    Distance(c,d) := haversine( Latitude(c), Longitude(c), Latitude(d), Longitude(d) )
+  elif (c = 0 and d <> 0) then
+    ! Going from the Pole
+    Distance(0,d) := haversine( POLE_LATITUDE, POLE_LONGITUDE, Latitude(d), Longitude(d) )
+  elif (c <> 0) then
+    ! Going to the Pole
+    Distance(c,0) := haversine( Latitude(c), Longitude(c), POLE_LATITUDE, POLE_LONGITUDE )
+  else
+    ! Stay put at the Pole
+    Distance(0,0) := 0
+  end-if
+end-do
+
+writeln("Total gift count: ", getsize(GiftIDs))
+
+! For calculating costs
+costs := 0.0
+weight := 0.0
+start := 0
+  
+declarations
+  Index         : set of integer
+  sortedGiftIDs : array(Index) of integer  
+  sortedWeights : array(Index) of real
+  TripIDs       : array(Index) of integer
+  TripSet       : dynamic array(set of integer) of set of integer
+  TripList      : list of integer
+  
+  CostVector    : dynamic array(set of integer) of real
+end-declarations
+
+initializations from "mmsheet.csv:subcluster_"+CLUSTER+"_costs.csv"
+  [sortedGiftIDs, TripIDs, sortedWeights] as "skiph;[A:D]"
+end-initializations
+
+maxTrip := 0
+forall( i in Index ) do
+  TripSet(TripIDs(i)) += {i}
+  if TripIDs(i) > maxTrip then
+    maxTrip := TripIDs(i)
+  end-if
+end-do
+
+writeln("Starting...")
+forall( t in 1..maxTrip ) do
+  weight := sum( i in TripSet(t) ) sortedWeights(i)
+  weight += 10
+
+  forall( i in TripSet(t) ) do
+    costs  += weight*Distance(start, sortedGiftIDs(i))
+    weight -= sortedWeights(i)
+    start  := sortedGiftIDs(i)
+  end-do
+  costs += weight*Distance(start,0)
+  CostVector(t) := costs
+  start := 0
+  costs := 0
+  weight := 0
+  TripList := []
+end-do
+
+fopen("cost_"+CLUSTER+".csv",F_OUTPUT)
+writeln("TripID,Cost")
+forall( t in 1..maxTrip ) do
+  writeln(t,",",CostVector(t))
+end-do
+fclose(F_OUTPUT)
+!!!!!!! GOES BACK OUT OF CHANGED CWD
+setparam('workdir','../')
+writeln
+writeln
+
+end-model
