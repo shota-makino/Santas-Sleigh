@@ -38,3 +38,6 @@ Thumbs.db
 example.mos
 SantasSledges_Main.mos
 SantasSledges_Subsolve.mos
+*.mos~
+*.dat
+
